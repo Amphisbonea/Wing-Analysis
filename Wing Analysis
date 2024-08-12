@@ -1,0 +1,108 @@
+library(geomorph)
+library(rgl)
+# Mac Users might need to install XQuartz for this package to work.
+library(borealis)
+library(car)
+library(Evomorph)
+library(ggpubr)
+library(ggrepel)
+library(rstatix)
+setwd("C:Users/ekara/Desktop/MPI_2024")
+populations <- c("ZOP")
+library(tidyverse)
+library(borealis)
+# Importing Left wings
+Left_Wings <- list()
+for (i in populations){
+  .txt <- paste0("coord_", i, "_Left.txt")
+  
+  # Check if the file exists
+  if (file.exists(.txt)) {
+    Left_Wings[[i]] <- read.csv(.txt, sep = "\t", header = FALSE)
+  } else {
+    message(paste("File", .txt, "not found. Skipping..."))
+  }
+}
+Left_Wings <- bind_rows(Left_Wings, .id = "populations") %>%
+  arrange(V1)
+
+# Importing Right wings
+Right_Wings <- list()
+for (i in populations){
+  .txt <- paste0("coord_", i, "_Right.txt")
+  Right_Wings[[i]] <- read.csv(.txt, sep = "\t", header = FALSE)
+}
+Right_Wings <- bind_rows(Right_Wings, .id = "populations")%>%
+  arrange(V1)
+
+# Mirror one coordinate of the Right Wings to allow for Procrustes Alignment later.
+mirror <- c("V2", "V4", "V6", "V8", "V10", "V12", "V14", "V16", "V18", "V20", "V22", "V24", "V26", "V28", "V30")
+Right_Wings <- Right_Wings %>%
+  mutate(across(all_of(mirror), ~ .x *-1))
+
+all.equal(Left_Wings$groups, Right_Wings$groups)
+all.equal(Left_Wings$V1, Right_Wings$V1)
+Average_Wings <- Left_Wings[, 1:2]
+Average_Wings[,3:32] <- Left_Wings[,3:32] - Right_Wings[,3:32]
+
+
+oldcolnames <- colnames(Average_Wings)
+newcolnames <- c("population", "ID"
+                 , "X1", "Y1"
+                 , "X2", "Y2"
+                 , "X3", "Y3"
+                 , "X4", "Y4"
+                 , "X5", "Y5"
+                 , "X6", "Y6"
+                 , "X7", "Y7"
+                 , "X8", "Y8"
+                 , "X9", "Y9"
+                 , "X10", "Y10"
+                 , "X11", "Y11"
+                 , "X12", "Y12"
+                 , "X13", "Y13"
+                 , "X14", "Y14"
+                 , "X15", "Y15")
+
+names(Left_Wings)[names(Left_Wings) == oldcolnames] <- newcolnames
+names(Right_Wings)[names(Right_Wings) == oldcolnames] <- newcolnames
+names(Average_Wings)[names(Average_Wings) == oldcolnames] <- newcolnames
+
+
+Left_Wings_Arr <- Left_Wings %>%
+  pivot_longer(
+    cols = starts_with("X") | starts_with("Y"),
+    names_to = c(".value", "index"),
+    names_pattern = "([XY])(\\d+)"
+  )
+
+Right_Wings_Arr <- Right_Wings %>%
+  pivot_longer(
+    cols = starts_with("X") | starts_with("Y"),
+    names_to = c(".value", "index"),
+    names_pattern = "([XY])(\\d+)"
+  )
+
+Average_Wings_Arr <- Average_Wings %>%
+  pivot_longer(
+    cols = starts_with("X") | starts_with("Y"),
+    names_to = c(".value", "index"),
+    names_pattern = "([XY])(\\d+)"
+  )
+
+Left_Wings_Arr$wing <- "Left"
+Right_Wings_Arr$wing <- "Right"
+LR_Wings <- bind_rows(Left_Wings_Arr, Right_Wings_Arr)
+
+write_csv(LR_Wings, file = "ZOP_LR_Wings.csv")
+write_csv(Average_Wings, file = "ZOP_AV_Wings.csv")
+
+create.tps(input.filename = 'LR_Coords_ZOP.csv',
+           output.filename = 'LR_Coords_ZOP.tps',
+           id.factors = c('wing', 'population'), # column names of metadata
+           separator = "_")
+
+
+
+
+coordsLR <- read.tps("LR_Coords_ZOP.tps")
