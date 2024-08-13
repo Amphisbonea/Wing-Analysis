@@ -107,6 +107,46 @@ create.tps(input.filename = 'LR_Coords_ZOP.csv',
 
 coordsLR <- read.tps("LR_Coords_ZOP.tps")
 
+#### For reformatting the Average data we obtained
+
+# Load necessary libraries
+library(tidyr)
+library(dplyr)
+
+# Load the data
+zop_av_wings <- read.csv("ZOP_AV_Wings.csv")
+
+# Add the missing columns with default empty values
+zop_av_wings <- zop_av_wings %>%
+  mutate(
+    unique = gsub(".*\\((\\d+)\\).*", "\\1", ID),  # Extract the number in parentheses as 'unique'
+    sex = "Female",  # Add empty sex column
+    wing = "Average",  # Add empty wing column
+    age = "7"   # Add empty age column
+  )
+
+# Reshape from wide to long format
+long_format <- zop_av_wings %>%
+  pivot_longer(
+    cols = matches("^X\\d+$|^Y\\d+$"),
+    names_to = c(".value", "coord_num"),
+    names_pattern = "([XY])(\\d+)"
+  ) %>%
+  arrange(ID, coord_num) %>%
+  group_by(ID) %>%
+  mutate(
+    id = ifelse(coord_num == 1, ID, ""),
+    population = ifelse(coord_num == 1, population, ""),
+    sex = ifelse(coord_num == 1, sex, ""),  # Assign only in the first row
+    wing = ifelse(coord_num == 1, wing, ""),  # Assign only in the first row
+    age = ifelse(coord_num == 1, age, ""),   # Assign only in the first row
+    unique = ifelse(coord_num == 1, unique, "")  # Assign only in the first row
+  ) %>%
+  ungroup() %>%
+  select(id, x = X, y = Y, population, sex, wing, age, unique)
+
+# Write the output to a new CSV file
+write.csv(long_format, "AV_Coords_ZOP_transformed.csv", row.names = FALSE)
 
 
 ##########
