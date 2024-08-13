@@ -106,3 +106,545 @@ create.tps(input.filename = 'LR_Coords_ZOP.csv',
 
 
 coordsLR <- read.tps("LR_Coords_ZOP.tps")
+
+
+
+##########
+
+
+## Script for Analysis of DROSOPHILA wing landmarks
+
+# Packages ----------------------------------------------------------------
+
+library(geomorph) 
+# https://www.rdocumentation.org/packages/geomorph/versions/4.0.6
+library(rgl)
+# Mac Users might need to install XQuartz for this package to work.
+library(borealis)
+library(car)
+library(Evomorph)
+library(tidyverse)
+
+# Import Landmark data ----------------------------------------------------
+
+# To import landmark data has to be stored in a continous list.
+# - per Individual 15 rows with x and y coordinates for each landmark
+# - metadata only in the first of the fifthteen rows
+create.tps(input.filename = '/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_test_06122023/coordLR.csv', # formatted data
+           output.filename = '/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/coordLR.tps',
+           id.factors = c('population', 'wing', 'sex', 'age', 'unique'), # coloumn names of metadata
+           separator = "-")
+##Trouble-Shooting:
+# Note that _ in the specimen.id can interfere with the reading of the .tps if 
+# the separator is not specified (since the default is _).
+
+# reading digitized landmarks (stored in text files such as .tps or .nts)
+coord_LR <- read.tps('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/coordLR.tps')
+coord_AV <- read.tps('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/coordAV.tps')
+
+# General Procrustes Analysis ---------------------------------------------
+
+## GPA of wings
+coordLR <- align.procrustes(coord_LR, outlier.analysis = TRUE) # Left and right wings are listed as individuals measurements.
+# 0 outliers removed
+coordAV <- align.procrustes(coord_AV, outlier.analysis = TRUE) # verage of wings is listed per individual.
+# 10 outliers removed
+
+# The superimposed landmark data of the GPA is saved under $coords in the gpa output.
+
+# Subsetting dataset ------------------------------------------------------
+
+# by sex
+# fem <- which(coordAV$gdf$sex == "female")
+# female <- subsetgmm(coordAV, specimens = fem)
+# mal <- which(coordAV$gdf$sex == "male")
+# male <- subsetgmm(coordAV, specimens = mal)
+
+# by wing direction
+left <- which(coordLR$gdf$wing == "Left")
+Left <- subsetgmm(coordLR, specimens = left)
+right <- which(coordLR$gdf$wing == "Right")
+Right <- subsetgmm(coordLR, specimens = right)
+
+# by population
+bop <- which(coordAV$gdf$population == "BOP")
+BOP <- subsetgmm(coordAV, specimens = bop) # subset from data object
+BOP_mean <- mshape(BOP$gdf$coords) # meanshape of population
+iop <- which(coordAV$gdf$population == "IOP")
+IOP <- subsetgmm(coordAV, specimens = iop)
+IOP_mean <- mshape(IOP$gdf$coords)
+nop <- which(coordAV$gdf$population == "NOP")
+NOP <- subsetgmm(coordAV, specimens = nop)
+NOP_mean <- mshape(NOP$gdf$coords)
+top <- which(coordAV$gdf$population == "TOP")
+TOP <- subsetgmm(coordAV, specimens = top)
+TOP_mean <- mshape(TOP$gdf$coords)
+zop <- which(coordAV$gdf$population == "ZOP")
+ZOP <- subsetgmm(coordAV, specimens = zop)
+ZOP_mean <- mshape(ZOP$gdf$coords)
+
+# sample sizes of dataset per population
+# specimen_nums <- as.matrix(c("BOP" = BOP$specimen.number,
+#                    "IOP" = IOP$specimen.number,
+#                    "NOP" = NOP$specimen.number,
+#                    "TOP" = TOP$specimen.number,
+#                    "ZOP" = ZOP$specimen.number))
+
+specimen_nums <- c(with(coordAV$gdf, by(population, population, length)))
+view(specimen_nums)
+
+# Descriptive Statistics --------------------------------------------------
+library(ggplot2)
+library(ggpubr)
+
+# populations colors for ggplot
+col.pops <- scale_color_manual(values = c(
+  "BOP" = "#f14124",
+  "IOP" = "#ef873d",
+  "NOP" = "#b5e86a",
+  "TOP" = "#7bcbb0",
+  "ZOP" = "#54b3e7")) 
+
+pops <- unique(coord_AV$metadata$population)
+
+## Wing Size per Populations
+csize_info <- as.data.frame(coordAV$gdf$Csize) # Centroid size
+pop_info <- as.data.frame(coordAV$gdf$population) # Population
+descriptive_data <- as.data.frame(list(Csize = csize_info,population = pop_info))
+names(descriptive_data) <- c("Csize", "population")
+
+## Statistics
+# One-Way ANOVA
+csize_anova <- aov(Csize ~ population, data = descriptive_data)
+summary(csize_anova)
+# Post-hoc pairwise comparisons between individual populations
+library(rstatix)
+
+# Games-Howell test based on Tukey but for unequal sample sizes
+csize_ght <- games_howell_test(descriptive_data, Csize ~ population, 
+                               conf.level = 0.95)
+xyp_csize_ght <- add_xy_position(data = descriptive_data, formula = Csize ~ population,x = "population",
+                                 test = csize_ght, fun =  "max",scales = "free", 
+                                 step.increase = 0.25, 
+                                 comparisons = list(c("BOP", "IOP"), c("NOP", "TOP"),
+                                                    c("TOP", "ZOP"), c("NOP", "ZOP"),
+                                                    c("BOP", "NOP"), c("IOP", "ZOP"), 
+                                                    c("BOP", "ZOP")))
+
+# Plot: Wing size per Populations
+descriptive_data %>% 
+  ggplot(aes(x = population, y = Csize, color = population))+
+  col.pops+
+  geom_boxplot(show.legend = FALSE)+
+  stat_pvalue_manual(xyp_csize_ght, label = "p.adj.signif")+
+  # geom_jitter(aes(color = population), shape = 21, fill = "white", size = 3)+
+  xlab("Populations")+
+  ylab("Centroid Size")+
+  theme_classic()
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/CentroidSize.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+## Wing Shape (by Procrustes Distance)
+mean_all <- as.matrix(mshape(coordAV$gdf$coords)) # mean shape across all populations
+pop_all <- coordAV$gdf$population
+proc_distance <- ShapeDist(coordAV$gdf$coords, mean_all) # procrustes distance of all individuals to mean shape across populations
+proc_data <- as.data.frame(list(ProcrustesDistance = proc_distance,
+                                population = pop_all))
+
+## Statistics
+# One-Way ANOVA
+pro_anova <- aov(ProcrustesDistance ~ population, data = proc_data)
+summary(pro_anova)
+# Post-hoc pairwise comparisons between individual populations
+pro_ght <- games_howell_test(proc_data, ProcrustesDistance ~ population, 
+                               conf.level = 0.95)
+xyp_pro_ght <- add_xy_position(data = proc_data, formula = ProcrustesDistance ~ population,
+                                 x = "population", test = pro_ght, fun =  "max", 
+                               step.increase = 0.05, comparisons=list(c("IOP", "ZOP")))
+
+# Plot: Wing shape per population
+proc_data %>% 
+  ggplot(aes(x = population, y = ProcrustesDistance, color = population))+
+  col.pops+
+  geom_boxplot(show.legend = FALSE)+
+  stat_pvalue_manual(xyp_pro_ght, label = "p.adj.signif")+
+  xlab("Populations")+
+  ylab("Procrustes distance to mean")+
+  theme_classic()
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/ProcrustesDistance.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+
+# Variance data ------------------------------------------------------------
+#1. IQR for shape
+#2. Median for shape
+#3. Procrustes distance of means to mean (all)
+#4. population data (pi and Tajima's D)
+#5. flight_data from Emre
+
+#1. Variance of shape IQR for each population
+IQR_shape <- data.frame()
+for (x in pops) {
+  a <- proc_data %>% 
+    filter(population == x)
+  b <- IQR(a$ProcrustesDistance)
+  c <- as.data.frame(list(population = x, ProcDis = b))
+  IQR_shape <- rbind(IQR_shape, c)
+}
+# mad() (Median absolute deviation) would be a more robust predictor for IQR
+
+#2. Median of shape for each population
+median_shape <- data.frame()
+for (x in pops) {
+  a <- proc_data %>% 
+    filter(population == x)
+  b <- median(a$ProcrustesDistance)
+  c <- as.data.frame(list(population = x, ProcDis = b))
+  median_shape <- rbind(median_shape, c)
+}
+
+mean_shape <- data.frame()
+for (x in pops){
+  a <- proc_data%>% 
+    filter(population == x)
+  b <- mean(a$ProcrustesDistance)
+  c <- as.data.frame(list(population = x, ProcDis = b))
+  mean_shape <- rbind(mean_shape, c)
+}
+
+mean_shapetopopmean <- data.frame()
+for (x in pops){
+  a <- proc_data
+}
+
+#3. Pairwise Procrustes Distance of all Population means to overall mean
+all_mean_shapes <- list(BOP_mean,IOP_mean,NOP_mean,TOP_mean,ZOP_mean)
+procdis_all <- ShapeDist(all_mean_shapes, mean_all) # mean_all is reference for comparison
+procdis_alltomean <- as.data.frame(list(population = pops,
+                                  ProcDis = procdis_all))
+
+#4. pi and Tajima's D from puplication
+pop_data <- read.csv2('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_test_04122023/Pop_data.csv',
+                      header = TRUE, sep = ",", dec = ".")
+#5. Variance + median of flight performance
+flight_data <- read.csv2('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_test_06122023/flight_data.csv',
+                         header = TRUE, sep = ";", dec = ".")
+flight_data_fem <- flight_data %>% filter(Sex == "Female")
+
+## "5 x 1" dataframe
+# where per category one value can be assigned per population (5 data points)
+df_tomean <- as.data.frame(list(population = c("BOP", "IOP", "NOP", "TOP", "ZOP"),
+                                pi = pop_data$pi,
+                                TajimaD = pop_data$TajimaD,
+                                ProDis_all = procdis_all, # of mean to mean
+                                meanflight = flight_data_fem$mean_flight,
+                                medianflight = flight_data_fem$median_flight,
+                                CVflight = flight_data_fem$CV,
+                                IQRflight = flight_data_fem$IQR,
+                                meanshape = mean_shape$ProcDis,
+                                meanshape_tomean = procdis_alltomean$ProcDis,
+                                medianshape = median_shape$ProcDis, # median of individuals to mean
+                                IQRshape = IQR_shape$ProcDis))
+write.csv(df_tomean, file = '/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/Data_to_Mean.csv')
+
+## Plotting
+
+# IQR to Procrustes Distance (of population mean to overall mean)
+ggplot(df_tomean, aes(x = ProDis_all, y = meanshape_tomean, color = population))+
+  geom_point()+
+  col.pops+
+  theme_classic()
+
+# Difference data ---------------------------------------------------------
+#1. IQR for shape
+#2. Median for shape
+#3. Procrustes distance of means to means
+#4. population data Fst
+#5. IQR for flight
+#6. Median for flight
+
+#1. Pairwise differences in IQR of shape performance between populations
+IQRshape <- abs(outer(IQR_shape$ProcDis, IQR_shape$ProcDis,
+                       FUN = "-")) # absolute pairwise difference in IQRs for all possible combinations of populations
+rownames(IQRshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(IQRshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+IQRshape_diff <- IQRshape %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+#2. Pairwise differences in median of shape performance between populations
+medianshape <- abs(outer(median_shape$ProcDis, median_shape$ProcDis,
+                          FUN = "-")) # absolute pairwise difference in medians for all possible combinations of populations
+rownames(medianshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(medianshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+medianshape_diff <- medianshape %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+meanshape <- abs(outer(mean_shape$ProcDis, mean_shape$ProcDis,
+                         FUN = "-")) # absolute pairwise difference in means for all possible combinations of populations
+rownames(meanshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(meanshape) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+meanshape_diff <- meanshape %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+meanshape_diff <- meanshape %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+#3. pairwise procrustes distances between population MEANs
+procdis_toB <- ShapeDist(all_mean_shapes, BOP_mean)
+procdis_toI <- ShapeDist(all_mean_shapes, IOP_mean)
+procdis_toN <- ShapeDist(all_mean_shapes, NOP_mean)
+procdis_toT <- ShapeDist(all_mean_shapes, TOP_mean)
+procdis_toZ <- ShapeDist(all_mean_shapes, ZOP_mean)
+
+# Pairwise prcrustes distances between group mean shapes
+ProDis_tomean <- as.data.frame(list(ProDis_B = procdis_toB,
+                                    ProDis_I = procdis_toI,
+                                    ProDis_N = procdis_toN,
+                                    ProDis_T = procdis_toT,
+                                    ProDis_Z = procdis_toZ))
+rownames(ProDis_tomean) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(ProDis_tomean) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+ProDis_diff <- ProDis_tomean %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+#4. Pairwise Fsts from publication
+FstN <- read.csv2('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/FstN.csv',
+                  header = TRUE, sep = ";", dec = ".")
+rownames(FstN) <- FstN[,1]
+FstN[,1] <- NULL
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+FstN_diff <- FstN %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+#5. Pairwise differences in IQR of flight performance between populations
+IQRflight <- abs(outer(flight_data_fem$IQR, flight_data_fem$IQR,
+                       FUN = "-")) # absolute pairwise difference in IQRs for all possible combinations of populations
+rownames(IQRflight) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(IQRflight) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+IQRflight_diff <- IQRflight %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+#6. Pairwise differences in median of flight performance between populations
+medianflight <- abs(outer(flight_data_fem$median_flight, flight_data_fem$median_flight,
+                          FUN = "-")) # absolute pairwise difference in medians for all possible combinations of populations
+rownames(medianflight) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+colnames(medianflight) <- c("BOP", "IOP", "NOP", "TOP", "ZOP")
+# Reformatting so that per line difference between two populations and id for comparasion (e.g. BOP-IOP)
+medianflight_diff <- medianflight %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  mutate(newcol1 = pmin(rowname, name), newcol2 = pmax(rowname, name)) %>%
+  select(-rowname, -name) %>% 
+  distinct() %>% 
+  unite(Comp, newcol1, newcol2, sep = "-")
+
+## "5 x 5" dataframe
+# per per pairwise comparisons between populations are assigned (15 data point, 10 w/o same comparisons (e.g. BOP-BOP))
+df_diff <- as.data.frame(list(comparison = ProDis_diff$Comp,
+                              meanshape = meanshape_diff$value,
+                              medianshape = medianshape_diff$value,
+                              IQRshape = IQRshape_diff$value,
+                              ProcDist = ProDis_diff$value,
+                              Fst = FstN_diff$value,
+                              medianflight = medianflight_diff$value,
+                              IQRflight = IQRflight_diff$value))
+df_todiff <- df_diff[complete.cases(df_diff),]
+## Plotting
+library(ggpubr)
+library(ggrepel)
+
+# fst + IQR shape: label.x = 0.07, label.y = 0
+# fst + IQR flight: label.x = 0.05, label.y = -1
+# IQR shape + IQR flight: label.x = 0, label.y = -1
+#median shape + median flight: label.x = 0.0005, label.y = -1
+# fst + median flight: label.x = 0.025, label.y = -1
+# fst + median shape: label.x = 0.05, label.y = 0
+
+ggplot(df_todiff, aes(x = Fst, y = ProcDist, label = comparison))+
+  stat_smooth(formula = y~x,method = "lm", color = "#BCDBF7", fill = "#BCDBF7")+ # linear regression
+  stat_cor(label.x = 0.05, label.y = 0)+
+  geom_point()+
+  geom_label_repel()+
+  xlab("Fixation Index")+
+  ylab("Mean of population Procrustes Distance")+
+  theme_classic()
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/Fst_Meanshape.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+# Best Flyers -------------------------------------------------------------
+
+fly_qual <- as.data.frame(list(population = pops,
+                               medianflight = flight_data_fem$median_flight,
+                               IQRflight = flight_data_fem$IQR,
+                               ProcDtobestmedian = procdis_toB))
+fly_qual4 <- fly_qual[-c(1),]
+ggplot(fly_qual,aes(x = ProcDtobest, y = medianflight, color = population))+
+  stat_smooth(formula = y~x, method = "lm", color = "#BCDBF7", fill = "#BCDBF7")+
+  stat_cor(label.x = 0.01, label.y = 10)+
+  geom_point(size = 3)+
+  col.pops+
+  xlab("Procrustes distance to BOP mean shape")+
+  ylab("Median of flight performance")+
+  theme_classic()
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/Fly_perf.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+# PCA (Kendall's Shape Space) ---------------------------------------------
+
+# perform PCA
+coordAV_pca <- gm.prcomp(coordAV$gdf$coords)
+BOP_pca <- gm.prcomp(BOP$gdf$coords)
+
+# population colors outside of ggplot
+cols.pops <- c(
+  "BOP" = "#f14124",
+  "IOP" = "#ef873d",
+  "NOP" = "#b5e86a",
+  "TOP" = "#7bcbb0",
+  "ZOP" = "#54b3e7")
+
+# Defining the links between landmarks
+wing.links <- matrix(c( 1,7, 7,12, 2,7, 2,6, 6,12, 6,8, 8,9, 8,13, 3,9, 3,5, 4,5,
+                        4,15, 5,11, 9,10, 10,11, 10,14, 11,15, 12,13, 13,14, 14,15),
+                     ncol = 2, byrow = TRUE)
+  
+# Plot for grouping by population, wing, sex, age etc.
+shape.space(coordAV_pca, group = coordAV$gdf$population, group.title = "population",
+            include.legend = TRUE, convex.hulls = TRUE,backtransform.examples = TRUE,
+            ref.shape = mshape(coordAV$gdf$coords), shape.method = "TPS", bt.shape.mag = 5,
+            bt.links = wing.links, color = cols.pops, pt.alpha = 0.5, 
+            bt.inset.size = 0.25, ref.pt.size = 0.25, lm.labels = FALSE) # by population
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/PCA_OutlierCorrected.bmp', 
+       plot = last_plot(), device = "bmp", width = 17, height = 8)
+
+shape.space(BOP_pca, group = BOP$gdf$age , group.title = "age",
+            include.legend = TRUE, convex.hulls = TRUE, backtransform.examples = TRUE,
+            ref.shape = mshape(BOP$gdf$coords), shape.method = "TPS", bt.shape.mag = 1,
+            bt.links = wing.links, color = c( "5" = "#f14124", "6" = "#54b3e7",
+            pt.alpha = 0.5, bt.inset.size = 0.25, ref.pt.size = 0.25, lm.labels = FALSE)) # by age
+
+# Plotting Size against Shape (PC1) for Allometry
+scaling.plot(x = log10(coordAV$gdf$Csize), y = coordAV_pca$x[,1],
+             group = coordAV$gdf$population, group.title = "population",
+             xlab = "Log10(Wing centroid size)", ylab = "PC1(wing shape)",
+             include.legend = TRUE, groups.trendlines = TRUE, fixed.aspect = FALSE, 
+             color = cols.pops, pt.alpha = 0.5)
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/Allometry_OutlierCorrected.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+## Model for Allometry with size and species
+i <- 10000
+model <- procD.lm(coords ~ log(Csize), data = coordAV$gdf, iter = i)
+pop.model <- procD.lm(coords ~ log(Csize) + population, data = coordAV$gdf, iter = i)
+pop.model.unique <- procD.lm(coords ~ log(Csize) * population, data = coordAV$gdf, iter = i)
+# test.model <- procD.lm(coords ~ log(Csize) + population + age, data = coordAV$gdf, iter = 100)
+# Allometry corrected PCA
+allometry.corrected.pca <- gm.prcomp(pop.model.unique$residuals)
+shape.space(allometry.corrected.pca, group = coordAV$gdf$population,
+            group.title = 'population', convex.hulls = TRUE, include.legend = TRUE,
+            color = cols.pops)
+
+# Fluctuating Asymmetry ---------------------------------------------------
+
+# Assigning variables for Input
+specimen.id <- coordLR$gdf$specimen.id
+wing <- coordLR$gdf$wing
+coords <- coordLR$gdf$coords
+LR_gdf <- geomorph.data.frame(shape = coordLR$gdf$coords,
+                              ind = coordLR$gdf$specimen.id,
+                              side = coordLR$gdf$wing,
+                              population = coordLR$gdf$population)
+# FA analysis
+LR_FA <- bilat.symmetry(A = shape, ind = ind, side = side, replicate = population,
+                        data = LR_gdf, object.sym = FALSE)
+plot(LR_FA, warpgrids = TRUE)
+
+# Reformatting results
+FAplm <- as.data.frame(LR_FA$FA.component)
+FA <- LR_FA$unsigned.AI
+DA <- LR_FA$signed.AI
+pop_label <- Right$gdf$population
+  
+FA_pop <- as.data.frame(list( FA = FA,
+                              DA = DA,
+                              population = pop_label))
+names(FA_pop) <- c("FA", "DA","population")
+
+## Statistics
+# One-Way ANOVA
+FA_anova <- aov(FA ~ population, data = FA_pop)
+summary(FA_anova)
+
+# Plotting (univariate) Asymmetry Index
+FA_pop %>% 
+  ggplot(aes(x = population, y = FA, color = population))+
+  geom_boxplot()+
+  col.pops+
+  xlab("Populations")+
+  ylab("Unsigned Asymmetry Index")+
+  theme_classic()
+ggsave('/Users/merinehlsen/Desktop/Research Module/2_Wing_Morphology/OP_09122023/FA_Index.bmp', 
+       plot = last_plot(), device = "bmp", width = 8.5, height = 6)
+
+
+# Statistical testing -----------------------------------------------------
+
+## ANOVA
+# H0: All groups means are equal.
+# H1: Not all group means are equal.
+# Syntax x ~ y (y is a function of x/ y is a predictor of x)
+model <- procD.lm(coords ~ population, data = coordAV$gdf, iter = 1000)
+anova(model)
+
+# Rejection of H0 => y is a predictor of x
+
+## ANOVA between models with geomoprh
+# "This is not the same b
